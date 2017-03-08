@@ -75,7 +75,7 @@ class MyHandler(BaseHTTPRequestHandler):
         for h in self.headers:
             hs[h] = self.headers[h]
         conn = http.client.HTTPSConnection(self.headers['Host'])
-        conn.request("POST", "/index.php?show=login", params, hs)  # TODO check if headers are working
+        conn.request("POST", self.path, params, hs)  # TODO check if headers are working
         r1 = conn.getresponse()
         #print(r1.status, r1.reason)
         data1 = r1.read()  # This will return entire content.
