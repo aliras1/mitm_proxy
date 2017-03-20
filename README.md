@@ -10,7 +10,7 @@ If the application is running you will see the target's HTTP requests and the PO
 
 ## Usage
 
-`sudo python3 mitmproxy.py <interface> -t <target ipv4> [-t6 <target ipv6>]` At least one of -t or -t6 should be there. You can define both as well.
+`sudo python3 mitmproxy.py <interface> {-t <target ipv4> | -t6 <target ipv6>}` At least one of -t or -t6 should be there. You can define both as well.
 
 ## Known bugs
 
